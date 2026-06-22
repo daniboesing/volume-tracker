@@ -110,6 +110,23 @@ const WORKOUTS = [
 
 const NUM_WEEKS = 12;
 
+// ─── CARDIO STRUCTURE ─────────────────────────────────────────────────────────
+const CARDIO_DAYS = [
+  { id: "dom", label: "Dom" },
+  { id: "seg", label: "Seg" },
+  { id: "ter", label: "Ter" },
+  { id: "qua", label: "Qua" },
+  { id: "qui", label: "Qui" },
+  { id: "sex", label: "Sex" },
+  { id: "sab", label: "Sáb" },
+];
+const CARDIO_TYPES = [
+  { id: "bike",      label: "Bike",      icon: "🚴" },
+  { id: "corrida",    label: "Corrida",   icon: "🏃" },
+  { id: "caminhada",  label: "Caminhada", icon: "🚶" },
+  { id: "escada",     label: "Escada",    icon: "🪜" },
+];
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function calcExerciseVolume(sets) {
   return (sets || []).reduce((total, s) => (parseFloat(s.kg)||0) * (parseInt(s.reps)||0) + total, 0);
@@ -122,10 +139,19 @@ function calcWeekVolume(weekData) {
 }
 function formatKg(n) { return n % 1 === 0 ? n.toFixed(0) : n.toFixed(1); }
 function formatVolume(n) { return n >= 1000 ? `${(n/1000).toFixed(1)}t` : `${Math.round(n)}kg`; }
+function formatMin(n) { return n >= 60 ? `${Math.floor(n/60)}h${n%60 ? (n%60)+"m" : ""}` : `${n}min`; }
+function calcDayCardioMin(entries) { return (entries || []).reduce((t, e) => t + (parseInt(e.minutos)||0), 0); }
+function calcWeekCardioMin(cardioData) { return CARDIO_DAYS.reduce((t, d) => t + calcDayCardioMin(cardioData?.[d.id]), 0); }
 function emptyExerciseSets(ex) { return Array.from({ length: ex.sets }, () => ({ kg: "", reps: "" })); }
+function emptyCardioData() {
+  const d = {};
+  CARDIO_DAYS.forEach(day => { d[day.id] = []; });
+  return d;
+}
 function emptyWeekData() {
   const d = {};
   WORKOUTS.forEach(w => { d[w.id] = {}; w.exercises.forEach(ex => { d[w.id][ex.id] = emptyExerciseSets(ex); }); });
+  d.cardio = emptyCardioData();
   return d;
 }
 
@@ -235,6 +261,31 @@ function WorkoutCard({ workout, weekIdx, allWeeks, weekData, onUpdate }) {
   );
 }
 
+function CardioDayCard({ day, entries, onAdd, onChange, onRemove }) {
+  const totalMin = calcDayCardioMin(entries);
+  return (
+    <div style={{ background: "#16161f", border: "1.5px solid #2a2a3a", borderRadius: 14, padding: 14, marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ color: "#fbbf24", fontWeight: 700, fontSize: 13 }}>{day.label}</span>
+        {totalMin > 0 && <span style={{ color: "#fbbf24", fontWeight: 800, fontSize: 13 }}>{formatMin(totalMin)}</span>}
+      </div>
+      {entries.map((e, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <select value={e.tipo} onChange={ev => onChange(i, "tipo", ev.target.value)}
+            style={{ flex: 1.3, background: "#1a1a28", border: "1px solid #2a2a3a", borderRadius: 7, color: "#eee", fontSize: 12, padding: "8px 6px", fontFamily: "inherit" }}>
+            {CARDIO_TYPES.map(t => <option key={t.id} value={t.id}>{t.icon} {t.label}</option>)}
+          </select>
+          <input type="number" inputMode="numeric" placeholder="min" value={e.minutos}
+            onChange={ev => onChange(i, "minutos", ev.target.value)}
+            style={{ flex: 1, minWidth: 0, background: "#1a1a28", border: "1px solid #2a2a3a", borderRadius: 7, color: "#eee", fontSize: 13, padding: "8px", fontFamily: "inherit", textAlign: "center" }} />
+          <button onClick={() => onRemove(i)} style={{ background: "transparent", border: "none", color: "#666", fontSize: 16, cursor: "pointer", padding: "0 4px" }}>×</button>
+        </div>
+      ))}
+      <button onClick={onAdd} style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px dashed #2a2a3a", background: "transparent", color: "#666", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Adicionar cardio</button>
+    </div>
+  );
+}
+
 function WeekComparison({ allWeeks, currentIdx }) {
   const pcts = allWeeks.map(w => calcWeekVolume(w));
   const filled = pcts.filter(v => v > 0);
@@ -295,6 +346,40 @@ function WorkoutBreakdown({ allWeeks, currentIdx }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function CardioSummary({ allWeeks, currentIdx }) {
+  const curr = allWeeks[currentIdx];
+  const totalMin = calcWeekCardioMin(curr?.cardio);
+  if (totalMin === 0) return null;
+  const prev = currentIdx > 0 ? calcWeekCardioMin(allWeeks[currentIdx-1]?.cardio) : null;
+  const diff = prev !== null && prev > 0 ? totalMin - prev : null;
+  const diffPct = diff !== null && prev > 0 ? Math.round((diff/prev)*100) : null;
+  const byType = {};
+  CARDIO_DAYS.forEach(day => {
+    (curr?.cardio?.[day.id] || []).forEach(e => {
+      const min = parseInt(e.minutos) || 0;
+      if (min > 0) byType[e.tipo] = (byType[e.tipo] || 0) + min;
+    });
+  });
+  return (
+    <div style={{ background: "#16161f", border: "1.5px solid #2a2a3a", borderRadius: 14, padding: 18, marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ color: "#fbbf24", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>🏃 Cardio da semana</div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ color: "#fbbf24", fontWeight: 900, fontSize: 16 }}>{formatMin(totalMin)}</div>
+          {diffPct !== null && <div style={{ fontSize: 10, fontWeight: 700, color: diff >= 0 ? "#4ade80" : "#f87171" }}>{diff >= 0 ? "▲" : "▼"} {Math.abs(diffPct)}%</div>}
+        </div>
+      </div>
+      {CARDIO_TYPES.filter(t => byType[t.id] > 0).map(t => (
+        <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <span style={{ fontSize: 16, width: 22 }}>{t.icon}</span>
+          <div style={{ flex: 1, color: "#aaa", fontSize: 12 }}>{t.label}</div>
+          <div style={{ color: "#fbbf24", fontWeight: 700, fontSize: 13 }}>{formatMin(byType[t.id])}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -376,6 +461,47 @@ function App() {
     });
   };
 
+  const addCardio = (weekI, dayId) => {
+    setAllWeeks(prev => {
+      const next = prev.map((w, wi) => {
+        if (wi !== weekI) return w;
+        const cardio = { ...(w.cardio || emptyCardioData()) };
+        cardio[dayId] = [...(cardio[dayId] || []), { tipo: CARDIO_TYPES[0].id, minutos: "" }];
+        return { ...w, cardio };
+      });
+      if (loadedRef.current) scheduleSave(next);
+      return next;
+    });
+  };
+
+  const updateCardio = (weekI, dayId, idx, field, val) => {
+    setAllWeeks(prev => {
+      const next = prev.map((w, wi) => {
+        if (wi !== weekI) return w;
+        const cardio = { ...(w.cardio || emptyCardioData()) };
+        const entries = [...(cardio[dayId] || [])];
+        entries[idx] = { ...entries[idx], [field]: val };
+        cardio[dayId] = entries;
+        return { ...w, cardio };
+      });
+      if (loadedRef.current) scheduleSave(next);
+      return next;
+    });
+  };
+
+  const removeCardio = (weekI, dayId, idx) => {
+    setAllWeeks(prev => {
+      const next = prev.map((w, wi) => {
+        if (wi !== weekI) return w;
+        const cardio = { ...(w.cardio || emptyCardioData()) };
+        cardio[dayId] = (cardio[dayId] || []).filter((_, i) => i !== idx);
+        return { ...w, cardio };
+      });
+      if (loadedRef.current) scheduleSave(next);
+      return next;
+    });
+  };
+
   const weekVol = calcWeekVolume(allWeeks[weekIdx]);
   const prevWeekVol = weekIdx > 0 ? calcWeekVolume(allWeeks[weekIdx-1]) : null;
   const weekDiff = prevWeekVol && prevWeekVol > 0 ? Math.round(((weekVol-prevWeekVol)/prevWeekVol)*100) : null;
@@ -431,7 +557,7 @@ function App() {
         </div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          {[["treino","Registrar"],["resumo","Resumo"]].map(([v,label]) => (
+          {[["treino","Registrar"],["cardio","Cardio"],["resumo","Resumo"]].map(([v,label]) => (
             <button key={v} onClick={() => setView(v)} style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, background: view===v?"#14532d":"#16161f", color: view===v?"#4ade80":"#555" }}>{label}</button>
           ))}
         </div>
@@ -458,12 +584,32 @@ function App() {
           </>
         )}
 
+        {view === "cardio" && (
+          <>
+            {CARDIO_DAYS.map(day => (
+              <CardioDayCard
+                key={day.id}
+                day={day}
+                entries={allWeeks[weekIdx]?.cardio?.[day.id] || []}
+                onAdd={() => addCardio(weekIdx, day.id)}
+                onChange={(i, field, val) => updateCardio(weekIdx, day.id, i, field, val)}
+                onRemove={(i) => removeCardio(weekIdx, day.id, i)}
+              />
+            ))}
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button onClick={() => setWeekIdx(i => Math.max(0,i-1))} disabled={weekIdx===0} style={{ flex: 1, padding: 12, borderRadius: 10, border: "1px solid #1a2a2a", background: "#16161f", color: weekIdx===0?"#1a2a2a":"#666", cursor: weekIdx===0?"default":"pointer", fontWeight: 700, fontSize: 13 }}>← Semana anterior</button>
+              <button onClick={() => setWeekIdx(i => Math.min(NUM_WEEKS-1,i+1))} disabled={weekIdx===NUM_WEEKS-1} style={{ flex: 1, padding: 12, borderRadius: 10, border: "1px solid #1a2a2a", background: "#16161f", color: weekIdx===NUM_WEEKS-1?"#1a2a2a":"#666", cursor: weekIdx===NUM_WEEKS-1?"default":"pointer", fontWeight: 700, fontSize: 13 }}>Próxima →</button>
+            </div>
+          </>
+        )}
+
         {view === "resumo" && (
           <>
             <WeekComparison allWeeks={allWeeks} currentIdx={weekIdx} />
+            <CardioSummary allWeeks={allWeeks} currentIdx={weekIdx} />
             <WorkoutBreakdown allWeeks={allWeeks} currentIdx={weekIdx} />
             <ExerciseBests allWeeks={allWeeks} />
-            {calcWeekVolume(allWeeks[weekIdx]) === 0 && (
+            {calcWeekVolume(allWeeks[weekIdx]) === 0 && calcWeekCardioMin(allWeeks[weekIdx]?.cardio) === 0 && (
               <div style={{ background: "#16161f", border: "1.5px solid #1a2a2a", borderRadius: 14, padding: 32, textAlign: "center" }}>
                 <div style={{ color: "#444", fontSize: 13 }}>Nenhum dado registrado ainda.<br />Vá para Registrar e preencha seus treinos!</div>
               </div>
